@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v1.2.3)"
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, suffix: linux-amd64 }
+          - { goos: linux, goarch: arm64, suffix: linux-arm64 }
+          - { goos: linux, goarch: arm, goarm: "7", suffix: linux-armv7 }
+          - { goos: linux, goarch: "386", suffix: linux-386 }
+          - { goos: darwin, goarch: amd64, suffix: macosx-amd64 }
+          - { goos: darwin, goarch: arm64, suffix: macosx-arm64 }
+          - { goos: windows, goarch: amd64, suffix: windows-amd64 }
+          - { goos: windows, goarch: "386", suffix: windows-386 }
+          - { goos: windows, goarch: arm64, suffix: windows-arm64 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
+        run: |
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+            -o dist/server${EXT} ./src/server
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+            -o dist/client${EXT} ./src/client
+
+      - name: Archive (unix)
+        if: matrix.goos != 'windows'
+        env:
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
+        run: |
+          tar -czf distributed-llama-${{ matrix.suffix }}-${VERSION}.tar.gz \
+            dist/server dist/client \
+            examples/env/.env.server \
+            examples/env/.env.client
+
+      - name: Archive (windows)
+        if: matrix.goos == 'windows'
+        env:
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
+        run: |
+          zip distributed-llama-${{ matrix.suffix }}-${VERSION}.zip \
+            dist/server.exe dist/client.exe \
+            examples/env/.env.server \
+            examples/env/.env.client
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.suffix }}
+          path: distributed-llama-${{ matrix.suffix }}-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          files: dist/*
+          generate_release_notes: true
