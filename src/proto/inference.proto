@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package inference;
+
+option go_package = "distributed-llama/generated/inference";
+
+service CoordinatorService {
+  rpc Register(RegisterRequest) returns (stream ServerCommand);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc UploadModel(UploadModelRequest) returns (stream ModelChunk);
+}
+
+service AgentService {
+  rpc QueryCapacity(CapacityRequest) returns (CapacityResponse);
+  rpc ForwardInference(InferenceRequest) returns (InferenceResponse);
+  rpc StopContainer(StopContainerRequest) returns (StopContainerResponse);
+}
+
+message RegisterRequest {
+  string client_id             = 1;
+  string hostname              = 2;
+  string agent_addr            = 3;
+  bool   model_already_cached  = 4;
+  string cached_model_filename = 5;
+  int64  cached_model_size     = 6;
+}
+
+message ServerCommand {
+  oneof command {
+    BeginModelUploadCmd begin_upload    = 1;
+    StartContainerCmd   start_container = 2;
+    StopContainerCmd    stop_container  = 3;
+  }
+}
+
+message BeginModelUploadCmd {
+  string filename   = 1;
+  int64  total_size = 2;
+}
+
+message StartContainerCmd {
+  string model_filename = 1;
+  bool   use_gpu        = 2;
+}
+
+message StopContainerCmd {}
+
+message HeartbeatRequest {
+  string client_id = 1;
+  int64  timestamp = 2;
+}
+
+message HeartbeatResponse {
+  bool ok = 1;
+}
+
+message UploadModelRequest {
+  string filename = 1;
+}
+
+message ModelChunk {
+  bytes data   = 1;
+  int64 offset = 2;
+  bool  is_eof = 3;
+}
+
+message CapacityRequest {}
+
+message CapacityResponse {
+  string client_id           = 1;
+  int32  estimated_slots     = 2;
+  float  cpu_usage_pct       = 3;
+  int64  vram_used_bytes     = 4;
+  int64  vram_total_bytes    = 5;
+  int64  ram_available_bytes = 6;
+}
+
+message InferenceRequest {
+  string              request_id = 1;
+  bytes               body_json  = 2;
+  map<string, string> headers    = 3;
+  string              path       = 4;
+  string              method     = 5;
+}
+
+message InferenceResponse {
+  string              request_id  = 1;
+  int32               status_code = 2;
+  bytes               body_json   = 3;
+  map<string, string> headers     = 4;
+  int64               latency_ms  = 5;
+}
+
+message StopContainerRequest {}
+
+message StopContainerResponse {
+  bool   success = 1;
+  string message = 2;
+}
